@@ -92,6 +92,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Data and logs
+data/
+logs/*
+!logs/.gitkeep
+
 # macOS
 .DS_Store
 
@@ -100,3 +105,4 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+.claude/settings.local.json
