@@ -35,24 +35,46 @@ async def send_reply_with_retry(message, text: str, parse_mode: str = None):
     await message.reply_text(text, parse_mode=parse_mode)
 
 
+TELEGRAM_MESSAGE_LIMIT = 4096
+
+
+def split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
+    """Разбивает длинное сообщение на части."""
+    if len(text) <= limit:
+        return [text]
+
+    parts = []
+    while text:
+        if len(text) <= limit:
+            parts.append(text)
+            break
+
+        # Ищем место для разбивки (по переносу строки или пробелу)
+        split_pos = text.rfind('\n', 0, limit)
+        if split_pos == -1 or split_pos < limit // 2:
+            split_pos = text.rfind(' ', 0, limit)
+        if split_pos == -1 or split_pos < limit // 2:
+            split_pos = limit
+
+        parts.append(text[:split_pos])
+        text = text[split_pos:].lstrip()
+
+    return parts
+
+
 async def send_formatted_reply(message, processed: ProcessedResponse):
-    """Отправляет форматированный ответ с citations."""
-    full_text = processed.text
+    """Отправляет форматированный ответ с citations (plain text)."""
+    # Убираем MarkdownV2 форматирование - отправляем plain text
+    full_text = remove_markdown_formatting(processed.text)
 
     if processed.footnotes:
-        full_text += processed.footnotes
+        full_text += remove_markdown_formatting(processed.footnotes)
 
-    # Пробуем отправить с MarkdownV2
-    try:
-        await send_reply_with_retry(message, full_text, parse_mode="MarkdownV2")
-    except BadRequest as e:
-        if "can't parse" in str(e).lower():
-            # Fallback: убираем форматирование и отправляем plain text
-            logging.warning(f"MarkdownV2 parse error, falling back to plain text: {e}")
-            plain_text = remove_markdown_formatting(full_text)
-            await send_reply_with_retry(message, plain_text)
-        else:
-            raise
+    # Разбиваем на части если слишком длинное
+    parts = split_message(full_text)
+
+    for part in parts:
+        await send_reply_with_retry(message, part)
 
 
 def remove_markdown_formatting(text: str) -> str:
@@ -159,7 +181,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_formatted_reply(update.message, processed)
 
     except Exception as e:
-        logging.error(f"Error in handle_message: {type(e).__name__}: {str(e)[:200]}")
+        logging.exception(f"Error in handle_message: {type(e).__name__}: {e}")
         sentry_sdk.capture_exception(e)
         try:
             if update.message:
